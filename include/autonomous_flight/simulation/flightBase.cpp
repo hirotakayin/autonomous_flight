@@ -45,6 +45,10 @@ namespace AutoFlight{
 	void flightBase::publishTarget(){
 		ros::Rate r (200);
 		while (ros::ok()){
+			if (not this->targetSet_ or not this->targetPubEnabled_){
+				r.sleep();
+				continue;
+			}
 	        if (this->poseControl_){
 	        	this->posePub_.publish(this->poseTgt_);
 	        }
@@ -58,7 +62,14 @@ namespace AutoFlight{
 
 	void flightBase::clickCB(const geometry_msgs::PoseStamped::ConstPtr& cp){
 		this->goal_ = *cp;
-		this->goal_.pose.position.z = this->takeoffHgt_;
+		
+		// Fall back to takeoff height only if 2D RViz click published Z near 0
+		if (std::abs(cp->pose.position.z) < 0.05) {
+			this->goal_.pose.position.z = this->takeoffHgt_;
+		} else {
+			this->goal_.pose.position.z = cp->pose.position.z;
+		}
+
 		if (not this->firstGoal_){
 			this->firstGoal_ = true;
 		}
@@ -257,11 +268,13 @@ namespace AutoFlight{
 		this->poseTgt_ = ps;
 		this->poseTgt_.header.frame_id = "map";
 		this->poseControl_ = true;
+		this->targetSet_ = true;
 	}
 
 	void flightBase::updateTargetWithState(const tracking_controller::Target& target){
 		this->stateTgt_ = target;
 		this->poseControl_ = false;
+		this->targetSet_ = true;
 	}
 
 	bool flightBase::isReach(const geometry_msgs::PoseStamped& poseTgt, bool useYaw){

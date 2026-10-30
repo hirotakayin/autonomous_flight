@@ -6,6 +6,7 @@
 
 #ifndef FLIGHTBASE_H
 #define FLIGHTBASE_H
+#include <atomic>
 #include <ros/ros.h>
 #include <std_msgs/Empty.h>
 #include <nav_msgs/Path.h>
@@ -49,6 +50,8 @@ namespace AutoFlight{
 
 		// status
 		bool poseControl_ = true;
+		std::atomic<bool> targetSet_ {false}; // publish nothing until a real target exists
+		std::atomic<bool> targetPubEnabled_ {true}; // false after landing, or the setpoint would restart the motors
 		bool odomReceived_ = false;
 		bool hasTakeoff_ = false;
 		bool firstGoal_ = false;

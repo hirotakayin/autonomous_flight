@@ -1,0 +1,48 @@
+#odom_topic: "/CERLAB/quadcopter/odom"
+odom_topic: "/mavros/local_position/odom"
+
+local_region_min: [-6, -6, -6]
+local_region_max: [6, 6, 6]
+global_region_min: [-1.0, 1.0, -7.5] # excavation_simple: pit x [0, 6], y [5, 17], z [-8, 0] plus the start apron
+global_region_max: [7.0, 18.0, 3.0]
+
+# Reduced per-iteration sampling budget to lower graph update spikes
+local_sample_thresh: 100        # Down from 200
+global_sample_thresh: 50        # Down from 100
+frontier_sample_thresh: 50      # Down from 100
+
+# Node spacing vs connection distance: max_connect_dist must be well above dist_thresh (upstream 0.8 / 1.5)
+# or the roadmap falls apart (1.5 / 2.0 left 554 nodes with 77 edges)
+dist_thresh: 1.2                # min distance between nodes (upstream 0.8)
+safe_distance_xy: 0.3
+safe_distance_z: 0.0
+safe_distance_check_unknown: true # nodes only in known-free space; edges must be known free, so unknown nodes never connect
+
+# Sensor model for information gain: camera or lidar
+sensor_type: lidar
+# Camera Parameters (sensor_type: camera); vertical_FOV also limits roadmap edge slope (vertical_FOV/2) in both modes
+horizontal_FOV: 1.57
+vertical_FOV: 1.57
+# Lidar Parameters (sensor_type: lidar), degrees: Mid-360 elevation FOV, pitched nose-down
+lidar_fov_up: 52.0
+lidar_fov_down: -7.0
+lidar_pitch: 23.5
+dmin: 0.3
+dmax: 7.0 # info-gain range; cost grows with dmax^3 (10 m took ~13 s per plan)
+
+# Steepest roadmap edge (deg). Edges must still be known free, so steep edges are safe with lidar; the pit is 16 m deep
+max_edge_vertical_angle: 75.0
+
+# Graph Connectivity
+nearest_neighbor_number: 8          # Down from 15
+frontier_nearest_neighbor_number: 8 # Down from 15
+max_connect_dist: 2.5               # ~2x dist_thresh (upstream 1.5 for 0.8)
+num_yaw_angles: 8                   # Down from 32 (Massive speedup)
+
+# Goal Candidate
+min_voxel_thresh: 0.5
+min_goal_candidates: 3          # Down from 5
+max_goal_candidates: 8          # Down from 10
+
+information_gain_update_distance: 1.5
+yaw_penalty_weight: 1.0

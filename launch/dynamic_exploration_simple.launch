@@ -1,0 +1,35 @@
+<launch>
+	<!-- 1. Fix missing leading slashes for CERLAB topics -->
+	<remap from="/mavros/local_position/odom" to="/CERLAB/quadcopter/odom" />
+	<remap from="/mavros/local_position/pose" to="/CERLAB/quadcopter/odom" />
+	<remap from="/mavros/setpoint_raw/local" to="/CERLAB/quadcopter/cmd_acc" />
+
+	<rosparam file="$(find tracking_controller)/cfg/controller_param.yaml" ns="controller"/>
+	<node pkg="tracking_controller" type="tracking_controller_node" name="tracking_controller_node" output="screen" />
+
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_inspection/fake_detector_param.yaml" />
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_exploration_simple/flight_base.yaml" ns="autonomous_flight"/>
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_exploration_simple/exploration_param.yaml" ns="DEP"/>
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_exploration_simple/planner_param.yaml" />
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_exploration_simple/dynamic_detector_param.yaml" ns="/onboard_detector" />
+	<rosparam file="$(find autonomous_flight)/cfg/dynamic_exploration_simple/mapping_param.yaml" ns="/dynamic_map" />
+
+	<node pkg="autonomous_flight" type="throttle_topics.sh" name="throttle_topics" />
+
+	<!-- Mission dashboard (needs ros-noetic-rosbridge-suite). gui:=false to skip -->
+	<arg name="gui" default="true"/>
+	<group if="$(arg gui)">
+		<include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>
+		<node pkg="autonomous_flight" type="open_mission_gui.sh" name="open_mission_gui"/>
+	</group>
+
+	<!-- RViz for debugging: lidar scan, voxel map, DEP roadmap / candidate paths / frontiers -->
+	<arg name="rviz" default="false"/>
+	<node if="$(arg rviz)" pkg="rviz" type="rviz" name="exploration_rviz" args="-d $(find autonomous_flight)/rviz/excavation_exploration.rviz"/>
+
+	<node pkg="autonomous_flight" type="dynamic_exploration_node" name="dynamic_exploration_node" output="screen">
+		<!-- 2. Direct depth topic remapping to bypass throttle_topics mismatch -->
+		<remap from="/camera/aligned_depth_to_color/image_raw_t" to="/camera/depth/image_raw"/>
+		<remap from="/camera/color/image_raw_t" to="/camera/color/image_raw"/>
+	</node>
+</launch>

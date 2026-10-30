@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control</title>
+<script src="https://cdn.jsdelivr.net/npm/roslib@1.4.1/build/roslib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+  :root {
+    --bg: #12151a; --panel: #1b2027; --line: #2d343e; --text: #e7eaee; --quiet: #98a2af;
+    --accent: #3d9df6; --good: #3fbf7f; --warn: #e5a93b; --danger: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #app { display: grid; grid-template-columns: 1fr 340px; height: 100%; }
+  #view { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  #view canvas { display: block; }
+  #view.picking canvas { cursor: crosshair; }
+  #side { background: var(--panel); border-left: 1px solid var(--line); padding: 16px;
+    display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+  #conn { font-size: 13px; color: var(--quiet); display: flex; align-items: center; gap: 8px; }
+  #conn i { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); }
+  #conn.on i { background: var(--good); }
+  #state { font-size: 26px; font-weight: 650; letter-spacing: .01em; }
+  #sub { color: var(--quiet); font-size: 13px; min-height: 18px; }
+  .bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  #pct { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats div { background: var(--bg); border-radius: 8px; padding: 8px; }
+  .stats b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stats span, .label { font-size: 12px; color: var(--quiet); }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { font: inherit; font-weight: 600; color: var(--text); background: #2a313b; border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 8px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #343c48; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.wide { grid-column: 1 / -1; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06131f; }
+  button.danger { color: #ffb4af; border-color: #6b3531; }
+  button.active { outline: 2px solid var(--warn); }
+  #log { flex: 1; min-height: 110px; background: var(--bg); border-radius: 8px; padding: 8px; overflow-y: auto; font-size: 13px; }
+  #log div { padding: 2px 0; }
+  #log time { color: var(--quiet); margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .overlay { position: absolute; background: rgba(18,21,26,.86); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  #legend { left: 12px; bottom: 12px; }
+  #legend .ramp { width: 150px; height: 10px; border-radius: 3px; margin: 4px 0;
+    background: linear-gradient(90deg, #440154, #3b528b, #21918c, #5ec962, #fde725); }
+  #legend .ends { display: flex; justify-content: space-between; color: var(--quiet); font-size: 12px; }
+  #legend p { margin: 6px 0 0; color: var(--quiet); }
+  #hint { left: 50%; top: 12px; transform: translateX(-50%); display: none; }
+  #confirm { left: 50%; top: 12px; transform: translateX(-50%); display: none; text-align: center; }
+  #confirm button { padding: 8px 16px; margin: 8px 4px 0; }
+  #resetView { right: 12px; top: 12px; padding: 6px 10px; font-size: 13px; position: absolute; }
+  #banner { right: 12px; bottom: 12px; max-width: 420px; display: none; border-color: var(--danger); }
+  #toast { left: 50%; bottom: 16px; transform: translateX(-50%); display: none; }
+  code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  @media (max-width: 800px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
+    html, body { height: auto; }
+    #view { height: 55vh; }
+    #side { border-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <button id="resetView">Reset view</button>
+    <div id="legend" class="overlay">
+      <div class="label">Mapped surfaces, by height</div>
+      <div class="ramp"></div>
+      <div class="ends"><span id="legLo">deep</span><span id="legHi">high</span></div>
+      <p>Green: drone. White: trail. Blue: planned path. Yellow box: progress region.</p>
+    </div>
+    <div id="hint" class="overlay">Click a mapped surface to inspect. <b>Esc</b> to cancel.</div>
+    <div id="confirm" class="overlay">
+      <div id="confirmText"></div>
+      <button id="confirmGo" class="primary">Go</button>
+      <button id="confirmCancel">Cancel</button>
+    </div>
+    <div id="banner" class="overlay">Not connected to the robot. Is <code>rosbridge</code> running? Retrying&hellip;</div>
+    <div id="toast" class="overlay"></div>
+  </div>
+  <div id="side">
+    <div id="conn"><i></i><span id="connText">Connecting&hellip;</span></div>
+    <div>
+      <div id="state">&mdash;</div>
+      <div id="sub"></div>
+    </div>
+    <div>
+      <div class="row"><span class="label">Pit explored</span><span id="pct">0%</span></div>
+      <div class="bar"><div id="pctBar"></div></div>
+    </div>
+    <div class="stats">
+      <div><b id="elapsed">0:00</b><span>Elapsed</span></div>
+      <div><b id="height">&mdash;</b><span>Height (m)</span></div>
+      <div><b id="frontiers">&mdash;</b><span>Frontiers</span></div>
+    </div>
+    <div class="buttons">
+      <button id="btnStart" class="primary wide">Start mission</button>
+      <button id="btnPause" class="wide">Pause</button>
+      <button id="btnInspect">Inspect a spot</button>
+      <button id="btnHome">Return home</button>
+      <button id="btnLand" class="danger wide">Land here</button>
+    </div>
+    <div class="label">Mission log</div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+// Overridable from the URL, e.g. ?ws=ws://192.168.0.13:9090&pose=/mavros/local_position/pose
+const query = new URLSearchParams(location.search);
+const WS_URL = query.get('ws') || 'ws://localhost:9090';
+const POSE_TOPIC = query.get('pose') || '/CERLAB/quadcopter/pose';
+const MAP_TOPIC = query.get('map') || '/dynamic_map/voxel_map';
+const PATH_TOPIC = query.get('path') || '/dynamicExploration/bspline_trajectory';
+
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- 3D view
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x12151a);
+view.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+camera.up.set(0, 0, 1); // ROS is z-up; everything is drawn in ROS map coordinates
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(1, 2, 3);
+scene.add(sun);
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+let regionCenter = new THREE.Vector3(0, 0, 0), regionSize = 20;
+function resetView() {
+  controls.target.copy(regionCenter);
+  camera.position.copy(regionCenter).add(new THREE.Vector3(-0.9, -1.1, 0.9).multiplyScalar(regionSize));
+  controls.update();
+}
+resetView();
+$('resetView').onclick = resetView;
+
+// Viridis-like ramp: deep = purple, high = yellow
+const RAMP = [[0x44,0x01,0x54],[0x3b,0x52,0x8b],[0x21,0x91,0x8c],[0x5e,0xc9,0x62],[0xfd,0xe7,0x25]];
+function rampColor(t, out) {
+  t = Math.min(1, Math.max(0, t)) * (RAMP.length - 1);
+  const i = Math.min(RAMP.length - 2, Math.floor(t)), f = t - i;
+  const a = RAMP[i], b = RAMP[i + 1];
+  out.setRGB((a[0] + (b[0] - a[0]) * f) / 255, (a[1] + (b[1] - a[1]) * f) / 255, (a[2] + (b[2] - a[2]) * f) / 255);
+}
+
+let voxelMesh = null, voxelCapacity = 0, voxelSize = 0;
+const voxelMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+function ensureVoxelMesh(count, size) {
+  if (voxelMesh && count <= voxelCapacity && size === voxelSize) return;
+  if (voxelMesh) { scene.remove(voxelMesh); voxelMesh.geometry.dispose(); voxelMesh.dispose(); }
+  voxelCapacity = Math.max(1000, count * 2);
+  voxelSize = size;
+  voxelMesh = new THREE.InstancedMesh(new THREE.BoxBufferGeometry(size, size, size), voxelMaterial, voxelCapacity);
+  voxelMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(voxelCapacity * 3), 3);
+  voxelMesh.frustumCulled = false; // bounds change every update
+  scene.add(voxelMesh);
+}
+
+function decodeCloud(msg) {
+  const raw = atob(msg.data);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) bytes[i] = raw.charCodeAt(i);
+  const dv = new DataView(bytes.buffer);
+  const offset = {};
+  msg.fields.forEach(f => { offset[f.name] = f.offset; });
+  const little = !msg.is_bigendian, step = msg.point_step, n = Math.floor(bytes.length / step);
+  const pts = new Float32Array(n * 3);
+  for (let i = 0; i < n; ++i) {
+    pts[i*3]   = dv.getFloat32(i * step + offset.x, little);
+    pts[i*3+1] = dv.getFloat32(i * step + offset.y, little);
+    pts[i*3+2] = dv.getFloat32(i * step + offset.z, little);
+  }
+  return pts;
+}
+
+let mapRes = 0.2;
+const dummy = new THREE.Object3D(), color = new THREE.Color();
+function updateVoxels(msg) {
+  const pts = decodeCloud(msg), n = pts.length / 3;
+  ensureVoxelMesh(n, mapRes);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < n; ++i) { const z = pts[i*3+2]; if (z < lo) lo = z; if (z > hi) hi = z; }
+  const span = Math.max(hi - lo, 0.001);
+  for (let i = 0; i < n; ++i) {
+    dummy.position.set(pts[i*3], pts[i*3+1], pts[i*3+2]);
+    dummy.updateMatrix();
+    voxelMesh.setMatrixAt(i, dummy.matrix);
+    rampColor((pts[i*3+2] - lo) / span, color);
+    voxelMesh.setColorAt(i, color);
+  }
+  voxelMesh.count = n;
+  voxelMesh.instanceMatrix.needsUpdate = true;
+  voxelMesh.instanceColor.needsUpdate = true;
+  if (n) { $('legLo').textContent = lo.toFixed(1) + ' m'; $('legHi').textContent = hi.toFixed(1) + ' m'; }
+}
+
+// Drone: a sphere with a nose showing its heading
+const drone = new THREE.Group();
+const droneMaterial = new THREE.MeshBasicMaterial({ color: 0x3fbf7f });
+drone.add(new THREE.Mesh(new THREE.SphereBufferGeometry(0.25, 16, 12), droneMaterial));
+const nose = new THREE.Mesh(new THREE.ConeBufferGeometry(0.14, 0.6, 12), droneMaterial);
+nose.rotation.z = -Math.PI / 2; // cone points along +x
+nose.position.x = 0.45;
+drone.add(nose);
+drone.visible = false;
+scene.add(drone);
+
+function makeLine(colorHex, capacity) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
+  geometry.setDrawRange(0, 0);
+  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: colorHex }));
+  line.frustumCulled = false;
+  scene.add(line);
+  return line;
+}
+const TRAIL_MAX = 20000;
+const trail = makeLine(0xffffff, TRAIL_MAX);
+let trailCount = 0, lastTrail = null;
+const plan = makeLine(0x3d9df6, 5000);
+
+function updatePose(msg) {
+  const p = msg.pose.position, q = msg.pose.orientation;
+  drone.position.set(p.x, p.y, p.z);
+  drone.quaternion.set(q.x, q.y, q.z, q.w);
+  drone.visible = true;
+  if (trailCount < TRAIL_MAX && (!lastTrail || drone.position.distanceTo(lastTrail) > 0.1)) {
+    trail.geometry.attributes.position.setXYZ(trailCount++, p.x, p.y, p.z);
+    trail.geometry.attributes.position.needsUpdate = true;
+    trail.geometry.setDrawRange(0, trailCount);
+    lastTrail = drone.position.clone();
+  }
+}
+
+function updatePlan(msg) {
+  const attr = plan.geometry.attributes.position, n = Math.min(msg.poses.length, 5000);
+  for (let i = 0; i < n; ++i) { const p = msg.poses[i].pose.position; attr.setXYZ(i, p.x, p.y, p.z); }
+  attr.needsUpdate = true;
+  plan.geometry.setDrawRange(0, n);
+}
+
+let regionBox = null, homeMarker = null, inspectMarker = null, regionKey = '';
+function updateRegion(min, max) {
+  const key = min.join() + max.join();
+  if (key === regionKey || max[0] <= min[0]) return;
+  const first = regionKey === '';
+  regionKey = key;
+  if (regionBox) scene.remove(regionBox);
+  const size = new THREE.Vector3(max[0]-min[0], max[1]-min[1], max[2]-min[2]);
+  regionCenter = new THREE.Vector3((max[0]+min[0])/2, (max[1]+min[1])/2, (max[2]+min[2])/2);
+  regionSize = Math.max(size.x, size.y, size.z);
+  regionBox = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxBufferGeometry(size.x, size.y, size.z)),
+                                     new THREE.LineBasicMaterial({ color: 0xe5a93b }));
+  regionBox.position.copy(regionCenter);
+  scene.add(regionBox);
+  if (first) resetView();
+}
+function updateHome(h) {
+  if (!homeMarker) {
+    homeMarker = new THREE.Mesh(new THREE.TorusBufferGeometry(0.4, 0.05, 8, 32), new THREE.MeshBasicMaterial({ color: 0x3fbf7f }));
+    scene.add(homeMarker);
+  }
+  homeMarker.position.set(h[0], h[1], h[2]);
+}
+function showInspectMarker(p) {
+  if (!inspectMarker) {
+    inspectMarker = new THREE.Mesh(new THREE.SphereBufferGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xe5a93b }));
+    scene.add(inspectMarker);
+  }
+  inspectMarker.position.copy(p);
+  inspectMarker.visible = true;
+}
+
+(function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+// ---------------------------------------------------------------- ROS link
+const ros = new ROSLIB.Ros();
+let connected = false;
+function setConnected(on) {
+  connected = on;
+  $('conn').classList.toggle('on', on);
+  $('connText').textContent = on ? 'Connected to ' + WS_URL : 'Not connected (' + WS_URL + ')';
+  $('banner').style.display = on ? 'none' : 'block';
+  applyState();
+}
+ros.on('connection', () => setConnected(true));
+ros.on('error', () => {});
+ros.on('close', () => { setConnected(false); setTimeout(() => ros.connect(WS_URL), 2000); });
+ros.connect(WS_URL);
+
+function subscribe(name, type, throttle, cb) {
+  new ROSLIB.Topic({ ros, name, messageType: type, throttle_rate: throttle, queue_length: 1 }).subscribe(cb);
+}
+subscribe(MAP_TOPIC, 'sensor_msgs/PointCloud2', 1000, updateVoxels);
+subscribe(POSE_TOPIC, 'geometry_msgs/PoseStamped', 100, updatePose);
+subscribe(PATH_TOPIC, 'nav_msgs/Path', 500, updatePlan);
+subscribe('/exploration/status', 'std_msgs/String', 0, m => updateStatus(JSON.parse(m.data)));
+
+const inspectTopic = new ROSLIB.Topic({ ros, name: '/exploration/inspect', messageType: 'geometry_msgs/PointStamped' });
+
+function callCommand(name) {
+  new ROSLIB.Service({ ros, name: '/exploration/' + name, serviceType: 'std_srvs/Trigger' })
+    .callService({}, res => toast(res.message), err => toast('Command failed: ' + err));
+}
+
+// ---------------------------------------------------------------- status and buttons
+const STATE_TEXT = {
+  IDLE: ['Ready', 'Press Start to take off and explore'],
+  TAKEOFF: ['Taking off', ''],
+  ENTRY: ['Entering the pit', 'Flying the entry waypoints'],
+  EXPLORING: ['Exploring', 'Choosing where to look next'],
+  PAUSED: ['Paused', 'Hovering. Resume to continue'],
+  INSPECTING: ['Inspecting', 'Flying to the selected spot, then back to exploring'],
+  RETURNING: ['Returning home', 'Will land at the takeoff spot'],
+  LANDING: ['Landing', ''],
+  LANDED: ['Landed', 'Mission over. Restart the sim for a new run'],
+};
+const FLYING = ['ENTRY', 'EXPLORING', 'INSPECTING', 'RETURNING', 'PAUSED'];
+let status = null;
+
+function updateStatus(s) {
+  status = s;
+  mapRes = s.map_res || mapRes;
+  const text = STATE_TEXT[s.state] || [s.state, ''];
+  $('state').textContent = text[0];
+  $('sub').textContent = text[1];
+  $('pct').textContent = s.explored_pct.toFixed(0) + '%';
+  $('pctBar').style.width = Math.min(100, s.explored_pct) + '%';
+  const sec = Math.floor(s.elapsed);
+  $('elapsed').textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  $('height').textContent = s.position[2].toFixed(1);
+  $('frontiers').textContent = s.frontiers < 0 ? '—' : s.frontiers;
+  updateRegion(s.region_min, s.region_max);
+  if (s.state !== 'IDLE') updateHome(s.home);
+  $('log').innerHTML = s.events.slice().reverse().map(e => {
+    const t = Math.floor(e.t);
+    return '<div><time>' + Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0') + '</time>' + escapeHtml(e.text) + '</div>';
+  }).join('');
+  applyState();
+}
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+function applyState() {
+  const st = status ? status.state : null;
+  const live = connected && st;
+  $('btnStart').disabled = !(live && st === 'IDLE');
+  const pausable = ['ENTRY', 'EXPLORING', 'INSPECTING', 'RETURNING', 'LANDING'].includes(st);
+  $('btnPause').textContent = st === 'PAUSED' ? 'Resume' : 'Pause';
+  $('btnPause').disabled = !(live && (pausable || st === 'PAUSED'));
+  $('btnInspect').disabled = !(live && ['ENTRY', 'EXPLORING', 'INSPECTING', 'PAUSED'].includes(st));
+  $('btnHome').disabled = !(live && FLYING.includes(st));
+  $('btnLand').disabled = !(live && FLYING.includes(st));
+  if ($('btnInspect').disabled) setPicking(false);
+}
+
+$('btnStart').onclick = () => callCommand('start');
+$('btnPause').onclick = () => callCommand(status && status.state === 'PAUSED' ? 'resume' : 'pause');
+$('btnHome').onclick = () => callCommand('return_home');
+$('btnLand').onclick = () => { if (confirm('Land where the drone is now? This ends the mission.')) callCommand('land'); };
+
+let toastTimer = null;
+function toast(text) {
+  $('toast').textContent = text;
+  $('toast').style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toast').style.display = 'none'; }, 3000);
+}
+
+// ---------------------------------------------------------------- click to inspect
+let picking = false, pickedPoint = null;
+function setPicking(on) {
+  picking = on;
+  view.classList.toggle('picking', on);
+  $('btnInspect').classList.toggle('active', on);
+  $('hint').style.display = on ? 'block' : 'none';
+  if (on) cancelConfirm();
+}
+function cancelConfirm() {
+  pickedPoint = null;
+  $('confirm').style.display = 'none';
+  if (inspectMarker) inspectMarker.visible = false;
+}
+$('btnInspect').onclick = () => setPicking(!picking);
+window.addEventListener('keydown', e => { if (e.key === 'Escape') { setPicking(false); cancelConfirm(); } });
+$('confirmCancel').onclick = cancelConfirm;
+$('confirmGo').onclick = () => {
+  if (pickedPoint) {
+    inspectTopic.publish(new ROSLIB.Message({ header: { frame_id: 'map' }, point: { x: pickedPoint.x, y: pickedPoint.y, z: pickedPoint.z } }));
+    toast('Inspection requested');
+  }
+  $('confirm').style.display = 'none';
+};
+
+// A click only counts if the mouse did not move: dragging orbits the camera
+const raycaster = new THREE.Raycaster();
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!picking || !downAt || !voxelMesh) return;
+  if (Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  raycaster.setFromCamera({ x: ((e.clientX - rect.left) / rect.width) * 2 - 1, y: -((e.clientY - rect.top) / rect.height) * 2 + 1 }, camera);
+  const hits = raycaster.intersectObject(voxelMesh);
+  if (!hits.length) { toast('No mapped surface there'); return; }
+  pickedPoint = hits[0].point.clone();
+  showInspectMarker(pickedPoint);
+  setPicking(false);
+  $('confirmText').textContent = 'Inspect (' + pickedPoint.x.toFixed(1) + ', ' + pickedPoint.y.toFixed(1) + ', ' + pickedPoint.z.toFixed(1) + ')?';
+  $('confirm').style.display = 'block';
+});
+
+setConnected(false);
+</script>
+</body>
+</html>

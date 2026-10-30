@@ -1,0 +1,26 @@
+use_fake_detector: true
+takeoff_height: 1.0 # m
+desired_velocity: 1.0 # m/s
+desired_acceleration: 1.0 # m/s^2
+desired_angular_velocity: 0.5 # rad/s
+waypoint_stablize_time: 0.0
+initial_scan: false
+replan_time_for_dynamic_obstacles: 0.3
+free_range: [1, 1, 1]
+reach_goal_distance: 0.1
+
+# Waypoints flown after takeoff, before DEP exploration starts: [x, y, z, yaw_deg] per waypoint.
+# Empty list = start exploring straight away.
+# excavation_simple: over the near rim, then down the middle of the pit (x 3, y 8: 3 m from
+# the side walls and the near wall), facing +y into the pit. Hand over to DEP at -4 m (half depth).
+initial_waypoints: [3.0, 3.5,  1.0, 90.0,
+                    3.0, 8.0,  0.0, 90.0,
+                    3.0, 8.0, -4.0, 90.0]
+
+# Mission GUI
+progress_region_min: [0.2, 5.2, -7.8] # % explored = known share of this box (excavation_simple pit interior, floor to rim)
+progress_region_max: [5.8, 16.8, 0.0]
+max_exploration_failures: 5 # consecutive failed DEP plans before exploration counts as complete -> return home and land
+inspect_hold_time: 3.0 # s at an inspection viewpoint
+inspect_distance: 2.5 # m from the selected point
+land_clearance: 0.4 # m above the mapped ground before cutting motors

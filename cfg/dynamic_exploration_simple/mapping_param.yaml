@@ -1,0 +1,55 @@
+sensor_input_mode: 1 # 0 camera 1: lidar
+localization_mode: 1 # 0: pose (default) 1: odom
+depth_image_topic: /camera/depth/image_raw
+# depth_image_topic: /no_topic
+point_cloud_topic: /cloud_registered_body # Mid-360 (uav_simulator lidar-dev), points in the tilted lidar frame
+pose_topic: /CERLAB/quadcopter/pose
+odom_topic: /CERLAB/quadcopter/odom
+
+# robot size
+robot_size: [0.5, 0.5, 0.3]
+
+# Camera Parameters
+depth_intrinsics: [554.254691191187, 554.254691191187, 320.5, 240.5] # fx,  fy, cx, cy
+depth_scale_factor: 10 # 1000 for Intel Realsense Camera
+depth_min_value: 0.5
+depth_max_value: 5.0
+depth_filter_margin: 2 # filter
+depth_skip_pixel: 2 # filter
+image_cols: 640
+image_rows: 480
+# depth camera extrinsic (sensor_input_mode: 0)
+# body_to_camera: [0.0,  0.0,  1.0,  0.09,
+#                 -1.0,  0.0,  0.0,  0.0 ,
+#                  0.0, -1.0,  0.0,  0.095,
+#                  0.0,  0.0,  0.0,  1.0]
+# lidar extrinsic (sensor_input_mode: 1): Mid-360 pitched 23.5 deg nose-down, 0.13 m above base_link
+body_to_camera: [ 0.917060, 0.0, 0.398749, 0.0,
+                  0.0,      1.0, 0.0,      0.0,
+                 -0.398749, 0.0, 0.917060, 0.13,
+                  0.0,      0.0, 0.0,      1.0]
+
+# Raycasting
+raycast_max_length: 20.0
+p_hit: 0.70
+p_miss: 0.35
+p_min: 0.12
+p_max: 0.97
+p_occ: 0.80
+
+# Map
+map_resolution: 0.2
+ground_height: -8.5 # m, bottom of the map: just below the excavation_simple pit floor (-8 m)
+map_size: [20, 40, 12] # x, y centred on the origin: x [-10, 10], y [-20, 20]; z [ground_height, ground_height + 12] = [-8.5, 3.5]
+local_update_range: [6, 6, 6]
+local_bound_inflation: 2.0 # inflate local bound in meter
+clean_local_map: false
+
+# visualization
+local_map_size: [20, 40, 12] # matches map_size
+max_height_visualization: 3.0 # m (adjusted for Z=0 platform and max flight ceiling)
+visualize_global_map: true
+verbose: false
+
+prebuilt_map_directory: "No"
+# prebuilt_map_directory: "/home/cerlab/map/static_map.pcd"
